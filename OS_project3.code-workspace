@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../../Downloads/מערכות הפעלה/OS3/xv6-riscv-riscv"
+		}
+	],
+	"settings": {}
+}
