@@ -681,3 +681,21 @@ procdump(void)
     printf("\n");
   }
 }
+
+
+// Find process by PID. Returns locked process or 0 if not found.
+// Caller must release the lock.
+struct proc*
+findproc(int pid)
+{
+  struct proc *p;
+
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->pid == pid && p->state != UNUSED){
+      return p;  // Return with lock held
+    }
+    release(&p->lock);
+  }
+  return 0;
+}

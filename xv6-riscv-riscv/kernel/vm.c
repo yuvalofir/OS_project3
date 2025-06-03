@@ -5,6 +5,7 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -163,7 +164,7 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   }
   return 0;
 }
-
+#define PTE_S (1L << 8) // shared page bit in PTE
 // Remove npages of mappings starting from va. va must be
 // page-aligned. The mappings must exist.
 // Optionally free the physical memory.
@@ -183,13 +184,46 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: not mapped");
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
-    if(do_free){
+    if (do_free && !(*pte & PTE_S)) {
       uint64 pa = PTE2PA(*pte);
       kfree((void*)pa);
     }
     *pte = 0;
   }
 }
+
+uint64 map_shared_pages(struct proc* src_proc, struct proc* dst_proc, uint64 src_va, uint64 size) {
+  if (!src_proc || !dst_proc) return -1;
+  uint64 start = PGROUNDDOWN(src_va);
+  uint64 end = PGROUNDUP(src_va + size);
+  uint64 len = end - start; 
+
+  uint64 dst_base = PGROUNDUP(dst_proc->sz); // assign top of heap in dst_proc
+  for (uint64 va = start; va < end; va += PGSIZE, dst_base += PGSIZE) {
+    pte_t *pte = walk(src_proc->pagetable, va, 0);
+    if (!pte || !(*pte & PTE_V) || !(*pte & PTE_U)) return -1;
+    uint64 pa = PTE2PA(*pte);
+    int flags = PTE_FLAGS(*pte) | PTE_S;
+    if (mappages(dst_proc->pagetable, dst_base, PGSIZE, pa, flags) < 0)
+      return -1;
+  }
+  dst_proc->sz += len;
+  return (dst_base - len) + (src_va - start);
+}
+
+uint64 unmap_shared_pages(struct proc* p, uint64 addr, uint64 size) {
+  uint64 start = PGROUNDDOWN(addr);
+  uint64 end = PGROUNDUP(addr + size);
+
+  for (uint64 va = start; va < end; va += PGSIZE) {
+    pte_t *pte = walk(p->pagetable, va, 0);
+    if (!pte || !(*pte & PTE_V) || !(*pte & PTE_S)) return -1;
+  }
+  uvmunmap(p->pagetable, start, (end - start) / PGSIZE, 0);
+  p->sz -= (end - start);
+  return 0;
+}
+
 
 // create an empty user page table.
 // returns 0 if out of memory.
